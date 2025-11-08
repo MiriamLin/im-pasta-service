@@ -1,37 +1,25 @@
-import ecoFriendlyCsv from '../../data/eco-friendly.csv?raw';
+import safetyCsv from '../../data/safety.csv?raw';
 
 export interface GreenRestaurantRecord {
   restaurantName: string;
   address?: string;
   phone?: string;
-  ecoLevel?: string;
-  ecoActions: string[];
+  ecoLevel?: string; // reuse field name to store評核結果，便於既有畫面顯示
+  ecoActions: string[]; // safety資料沒有此欄，維持空陣列確保其他版位正常運作
 }
 
 type CsvRow = Record<string, string>;
 
 const CSV_HEADERS = {
-  name: ['餐廳名稱', 'restaurant_name', 'name'],
-  address: ['餐廳地址', '地址', 'address'],
+  name: ['業者名稱店名', '餐廳名稱', 'name'],
+  address: ['地址', '餐廳地址', 'address'],
   phone: ['餐廳電話', '電話', 'tel', 'phone'],
-  ecoLevel: ['額外環保作為', '環保等級', 'eco_level'],
+  evaluation: ['評核結果', 'evaluation', '結果'],
 };
 
 interface InternalRestaurant extends GreenRestaurantRecord {
   normalizedName: string;
   normalizedAddress: string;
-}
-
-function parseEcoActions(raw?: string): string[] {
-  if (!raw) {
-    return [];
-  }
-
-  return raw
-    .split(/[、,，]/)
-    .map((item) => item.replace(/^["'\s]+|["'\s]+$/g, ''))
-    .map((item) => item.trim())
-    .filter((item) => item.length > 0 && !/^\d+$/.test(item));
 }
 
 function splitCsvLine(line: string): string[] {
@@ -73,7 +61,7 @@ function splitCsvLine(line: string): string[] {
 function parseCsv(content: string): CsvRow[] {
   const sanitized = content.replace(/^\uFEFF/, '');
   const lines = sanitized.split(/\r?\n/).filter((line) => line.trim().length > 0);
-  if (lines.length === 0) {
+  if (!lines.length) {
     return [];
   }
 
@@ -107,7 +95,7 @@ function stripInternalFields(record: InternalRestaurant): GreenRestaurantRecord 
   return rest;
 }
 
-const internalRestaurantList: InternalRestaurant[] = parseCsv(ecoFriendlyCsv)
+const internalRestaurantList: InternalRestaurant[] = parseCsv(safetyCsv)
   .map((row) => {
     const restaurantName = pickFirst(row, CSV_HEADERS.name);
     if (!restaurantName) {
@@ -115,32 +103,24 @@ const internalRestaurantList: InternalRestaurant[] = parseCsv(ecoFriendlyCsv)
     }
 
     const address = pickFirst(row, CSV_HEADERS.address);
-    const ecoLevel = pickFirst(row, CSV_HEADERS.ecoLevel);
+    const evaluation = pickFirst(row, CSV_HEADERS.evaluation);
 
     return {
       restaurantName,
       address,
       phone: pickFirst(row, CSV_HEADERS.phone),
-      ecoLevel,
-      ecoActions: parseEcoActions(ecoLevel),
+      ecoLevel: evaluation,
+      ecoActions: [],
       normalizedName: normalizeKeyword(restaurantName),
-      normalizedAddress: address ? normalizeKeyword(address) : ''
+      normalizedAddress: address ? normalizeKeyword(address) : '',
     };
   })
   .filter((item): item is InternalRestaurant => Boolean(item));
 
-const ecoRestaurantList = internalRestaurantList.map(stripInternalFields);
-
-const ecoActionOptions = Array.from(
-  new Set(internalRestaurantList.flatMap((item) => item.ecoActions))
-).sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+const safetyRestaurantList = internalRestaurantList.map(stripInternalFields);
 
 export function getAllGreenRestaurants() {
-  return ecoRestaurantList;
-}
-
-export function getEcoActionOptions() {
-  return ecoActionOptions;
+  return safetyRestaurantList;
 }
 
 export async function searchGreenRestaurants(keyword: string) {
