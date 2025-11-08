@@ -5,6 +5,7 @@ export interface GreenRestaurantRecord {
   address?: string;
   phone?: string;
   ecoLevel?: string;
+  ecoActions: string[];
 }
 
 type CsvRow = Record<string, string>;
@@ -15,6 +16,18 @@ const CSV_HEADERS = {
   phone: ['餐廳電話', '電話', 'tel', 'phone'],
   ecoLevel: ['額外環保作為', '環保等級', 'eco_level'],
 };
+
+function parseEcoActions(raw?: string): string[] {
+  if (!raw) {
+    return [];
+  }
+
+  return raw
+    .split(/[、,，]/)
+    .map((item) => item.replace(/^["'\s]+|["'\s]+$/g, ''))
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0 && !/^\d+$/.test(item));
+}
 
 function splitCsvLine(line: string): string[] {
   const values: string[] = [];
@@ -82,14 +95,29 @@ const ecoRestaurantList: GreenRestaurantRecord[] = parseCsv(ecoFriendlyCsv)
       return null;
     }
 
+    const ecoLevel = pickFirst(row, CSV_HEADERS.ecoLevel);
+
     return {
       restaurantName,
       address: pickFirst(row, CSV_HEADERS.address),
       phone: pickFirst(row, CSV_HEADERS.phone),
-      ecoLevel: pickFirst(row, CSV_HEADERS.ecoLevel),
+      ecoLevel,
+      ecoActions: parseEcoActions(ecoLevel),
     };
   })
   .filter((item): item is GreenRestaurantRecord => Boolean(item));
+
+const ecoActionOptions = Array.from(
+  new Set(ecoRestaurantList.flatMap((item) => item.ecoActions))
+).sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+
+export function getAllGreenRestaurants() {
+  return ecoRestaurantList;
+}
+
+export function getEcoActionOptions() {
+  return ecoActionOptions;
+}
 
 export async function searchGreenRestaurants(keyword: string) {
   const normalized = keyword.trim().toLowerCase();
