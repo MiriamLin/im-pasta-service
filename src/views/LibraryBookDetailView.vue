@@ -293,8 +293,9 @@ const goOuterLibrary = () => {
               target="_blank"
               class="underline text-primary-500"
               tabindex="0"
-              >圖書館</a
             >
+              圖書館
+            </a>
             登入個人書房，設定通知方式。
           </p>
         </div>

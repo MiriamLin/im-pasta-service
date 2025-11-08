@@ -25,7 +25,7 @@ const CSV_HEADERS = {
   ingredientBrand: ['原料品牌', 'ingredient_brand'],
   servingSize: ['每一份量', 'serving_size'],
   calories: ['熱量大卡', 'calories'],
-  infoUrl: ['相關資訊連結', 'info_link', 'link'],
+  infoUrl: ['相關資訊連結', 'info_link', 'link']
 };
 
 const internalIngredientList: InternalIngredient[] = parseCsv(ingredientsCsv)
@@ -44,7 +44,7 @@ const internalIngredientList: InternalIngredient[] = parseCsv(ingredientsCsv)
       servingSize: pickFirst(row, CSV_HEADERS.servingSize),
       calories: pickFirst(row, CSV_HEADERS.calories),
       infoUrl: pickFirst(row, CSV_HEADERS.infoUrl),
-      normalizedBrand: normalizeKeyword(brandName),
+      normalizedBrand: normalizeKeyword(brandName)
     };
   })
   .filter((item): item is InternalIngredient => Boolean(item));
@@ -57,7 +57,7 @@ export function suggestBrands(keyword: string) {
   if (!normalized) {
     return Array.from(brandMap.values()).map(({ brandName, companyName }) => ({
       brandName,
-      companyName,
+      companyName
     }));
   }
 
@@ -98,9 +98,9 @@ export function getBrandIngredients(brandName: string): IngredientDetail[] {
           ingredientBrand: item.ingredientBrand,
           servingSize: item.servingSize,
           calories: item.calories,
-          infoUrl: item.infoUrl,
+          infoUrl: item.infoUrl
         },
-        ingredientSet: new Set<string>(),
+        ingredientSet: new Set<string>()
       });
     }
 
@@ -133,13 +133,16 @@ export function getBrandIngredients(brandName: string): IngredientDetail[] {
 }
 
 function buildBrandMap(list: InternalIngredient[]) {
-  const map = new Map<string, { brandName: string; companyName?: string; normalizedBrand: string }>();
+  const map = new Map<
+    string,
+    { brandName: string; companyName?: string; normalizedBrand: string }
+  >();
   list.forEach((item) => {
     if (!map.has(item.normalizedBrand)) {
       map.set(item.normalizedBrand, {
         brandName: item.brandName,
         companyName: item.companyName,
-        normalizedBrand: item.normalizedBrand,
+        normalizedBrand: item.normalizedBrand
       });
     }
   });
@@ -197,12 +200,7 @@ function splitCsvLine(line: string): string[] {
   }
 
   values.push(current);
-  return values.map((value) =>
-    value
-      .replace(/^"|"$/g, '')
-      .replace(/""/g, '"')
-      .trim()
-  );
+  return values.map((value) => value.replace(/^"|"$/g, '').replace(/""/g, '"').trim());
 }
 
 function pickFirst(row: CsvRow, keys: string[]): string | undefined {
@@ -216,5 +214,5 @@ function pickFirst(row: CsvRow, keys: string[]): string | undefined {
 }
 
 function normalizeKeyword(value: string) {
-  return value.replace(/\s|　/g, '').toLowerCase();
+  return value.replace(/\s|\u3000/g, '').toLowerCase();
 }

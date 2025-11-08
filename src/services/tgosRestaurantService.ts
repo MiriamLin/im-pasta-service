@@ -80,7 +80,7 @@ export async function getAdministrativeTown(lat: number, lng: number) {
   const data = await tgosRequest<TgosRangeResponse>('/Range/Administrative', {
     Unit: 'town',
     Lng: lng,
-    Lat: lat,
+    Lat: lat
   });
 
   if (!data.responseCount || !data.responseData?.length) {
@@ -90,7 +90,7 @@ export async function getAdministrativeTown(lat: number, lng: number) {
   const unit = data.responseData[0];
   return {
     county: unit.countyname,
-    town: unit.townname,
+    town: unit.townname
   };
 }
 
@@ -99,7 +99,7 @@ export async function fetchRestaurantsByTown(county: string, town: string) {
     Theme_Id: TGOS_RESTAURANT_THEME_ID,
     County: county,
     Town: town,
-    Keywords: RESTAURANT_KEYWORD,
+    Keywords: RESTAURANT_KEYWORD
   });
 
   if (!data.responseCount || !data.features) {
@@ -121,7 +121,7 @@ export async function fetchRestaurantsByTown(county: string, town: string) {
         address: feature.properties.address ?? undefined,
         village: feature.properties.villname ?? undefined,
         lng,
-        lat,
+        lat
       } as TgosNearbyRestaurant;
     })
     .filter((item): item is TgosNearbyRestaurant => Boolean(item));

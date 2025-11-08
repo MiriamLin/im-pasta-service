@@ -1,4 +1,5 @@
 import safetyCsv from '../../data/safety.csv?raw';
+import { city as taiwanCities } from '@/zipcode/city';
 
 export interface GreenRestaurantRecord {
   restaurantName: string;
@@ -6,6 +7,8 @@ export interface GreenRestaurantRecord {
   phone?: string;
   ecoLevel?: string;
   ecoActions: string[];
+  county?: string;
+  town?: string;
 }
 
 type CsvRow = Record<string, string>;
@@ -50,12 +53,7 @@ function splitCsvLine(line: string): string[] {
   }
 
   values.push(current);
-  return values.map((value) =>
-    value
-      .replace(/^"|"$/g, '')
-      .replace(/""/g, '"')
-      .trim()
-  );
+  return values.map((value) => value.replace(/^"|"$/g, '').replace(/""/g, '"').trim());
 }
 
 function parseCsv(content: string): CsvRow[] {
@@ -87,12 +85,36 @@ function pickFirst(row: CsvRow, keys: string[]): string | undefined {
 }
 
 function normalizeKeyword(value: string) {
-  return value.replace(/\s|　/g, '').toLowerCase();
+  return value.replace(/\s|\u3000/g, '').toLowerCase();
 }
 
 function stripInternalFields(record: InternalRestaurant): GreenRestaurantRecord {
   const { normalizedName: _name, normalizedAddress: _address, ...rest } = record;
   return rest;
+}
+
+function normalizeCounty(value: string) {
+  return value.replace(/台/g, '臺');
+}
+
+function extractCountyTown(address?: string) {
+  if (!address) {
+    return { county: undefined, town: undefined };
+  }
+  const normalized = normalizeCounty(address);
+  const entry = taiwanCities.find((item) =>
+    normalized.startsWith(normalizeCounty(item.county + item.city))
+  );
+  if (entry) {
+    return { county: normalizeCounty(entry.county), town: entry.city };
+  }
+  const countyOnly = taiwanCities.find((item) =>
+    normalized.startsWith(normalizeCounty(item.county))
+  );
+  if (countyOnly) {
+    return { county: normalizeCounty(countyOnly.county), town: undefined };
+  }
+  return { county: undefined, town: undefined };
 }
 
 const internalRestaurantList: InternalRestaurant[] = parseCsv(safetyCsv)
@@ -104,6 +126,7 @@ const internalRestaurantList: InternalRestaurant[] = parseCsv(safetyCsv)
 
     const address = pickFirst(row, CSV_HEADERS.address);
     const evaluation = pickFirst(row, CSV_HEADERS.evaluation);
+    const { county, town } = extractCountyTown(address);
 
     return {
       restaurantName,
@@ -112,7 +135,9 @@ const internalRestaurantList: InternalRestaurant[] = parseCsv(safetyCsv)
       ecoLevel: evaluation,
       ecoActions: [],
       normalizedName: normalizeKeyword(restaurantName),
-      normalizedAddress: address ? normalizeKeyword(address) : ''
+      normalizedAddress: address ? normalizeKeyword(address) : '',
+      county,
+      town
     };
   })
   .filter((item): item is InternalRestaurant => Boolean(item));
@@ -120,6 +145,10 @@ const internalRestaurantList: InternalRestaurant[] = parseCsv(safetyCsv)
 const safetyRestaurantList = internalRestaurantList.map(stripInternalFields);
 
 export function getAllGreenRestaurants() {
+  return safetyRestaurantList;
+}
+
+export function getSafetyRestaurantsWithRegion() {
   return safetyRestaurantList;
 }
 

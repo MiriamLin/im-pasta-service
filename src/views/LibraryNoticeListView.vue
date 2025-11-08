@@ -68,8 +68,9 @@ const onNegativeClick = () => {
             href="javascript:void(0)"
             class="underline"
             @click="isDialogOpen = true"
-            >圖書館網站</a
           >
+            圖書館網站
+          </a>
         </p>
       </div>
     </div>
@@ -86,8 +87,9 @@ const onNegativeClick = () => {
             href="javascript:void(0)"
             class="underline"
             @click="isDialogOpen = true"
-            >圖書館網站</a
           >
+            圖書館網站
+          </a>
         </p>
       </div>
     </div>
