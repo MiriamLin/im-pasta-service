@@ -1,14 +1,19 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import type { TabsProps } from '@/interfaces/tab-props.interface';
 
 const props = withDefaults(defineProps<TabsProps>(), {
   tabList: () => [
     {
       id: 1,
-      title: '搜尋'
+      title: '餐廳搜尋'
     },
     {
       id: 2,
+      title: '食品搜尋'
+    },
+    {
+      id: 3,
       title: '找餐廳'
     }
   ],
@@ -16,12 +21,19 @@ const props = withDefaults(defineProps<TabsProps>(), {
 });
 
 const activeTab = defineModel({ default: 0 });
+
+const tabCount = computed(() => Math.max(1, props.tabList.length));
+const gridStyle = computed(() => ({
+  gridTemplateColumns: `repeat(${tabCount.value}, minmax(0, 1fr))`,
+}));
+const sliderWidth = computed(() => `calc(100% / ${tabCount.value})`);
 </script>
 
 <template>
   <section
     class="tabs"
-    :class="{ '!grid-cols-3': tabList.length % 3 === 0, 'tabs__content-type': props.contentType }"
+    :class="{ 'tabs__content-type': props.contentType }"
+    :style="gridStyle"
   >
     <button
       v-for="(item, index) in props.tabList"
@@ -36,17 +48,12 @@ const activeTab = defineModel({ default: 0 });
     >
       {{ item.title }}
     </button>
-    <div
-      class="slider"
-      :class="{ 'slider__content-type': props.contentType }"
-      :style="{ transform: `translate(calc(100%*${activeTab}))` }"
-    />
   </section>
 </template>
 
 <style lang="postcss">
 .tabs {
-  @apply grid grid-cols-2;
+  @apply grid;
   @apply px-4 pt-2;
   @apply border-b border-b-grey-300;
 
@@ -73,14 +80,4 @@ const activeTab = defineModel({ default: 0 });
   }
 }
 
-.slider {
-  @apply relative bottom-0;
-  @apply transition-all duration-500;
-  @apply bg-primary-500;
-  @apply w-full h-0.5;
-
-  &__content-type {
-    @apply bg-[#5AB4C5];
-  }
-}
 </style>

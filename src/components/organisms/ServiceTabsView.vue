@@ -6,10 +6,14 @@ const props = withDefaults(defineProps<TabsProps>(), {
   tabList: () => [
     {
       id: 1,
-      title: '搜尋'
+      title: '餐廳搜尋'
     },
     {
       id: 2,
+      title: '食品搜尋'
+    },
+    {
+      id: 3,
       title: '找餐廳'
     }
   ],
