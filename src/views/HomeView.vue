@@ -223,17 +223,6 @@ const pickRandomRestaurants = (sourceList: GreenRestaurantRecord[], count = 3) =
 };
 
 const refreshRandomRestaurants = () => {
-  if (userLocation.value && nearbyRestaurants.value.length) {
-    const converted = nearbyRestaurants.value.map((restaurant) => ({
-      restaurantName: restaurant.name,
-      address: restaurant.address,
-      phone: undefined,
-      ecoLevel: undefined,
-      ecoActions: []
-    }));
-    randomRestaurants.value = pickRandomRestaurants(converted);
-    return;
-  }
   randomRestaurants.value = pickRandomRestaurants(ALL_GREEN_RESTAURANTS);
 };
 
