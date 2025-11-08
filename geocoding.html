@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Distance to Address — Geocoding Demo</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:720px;margin:24px auto;padding:0 16px}
+    label{display:block;margin-top:12px}
+    input[type=text], input[type=password]{width:100%;padding:8px;margin-top:6px}
+    button{margin-top:12px;padding:8px 12px}
+    .result{margin-top:18px;padding:12px;border:1px solid #ddd;border-radius:6px;background:#fafafa}
+    .muted{color:#666;font-size:0.9rem}
+  </style>
+</head>
+<body>
+  <h1>Distance to Address</h1>
+  <p class="muted">Enter an address. By default the demo uses OpenStreetMap's Nominatim service (no API key required). For Taiwan you can optionally provide TGOS AppID/APIKey to use TGOS's address locate service — paste them below and the demo will load TGOS to improve Taiwan results.</p>
+
+  <label for="tgosAppId">TGOS AppID (optional, for Taiwan)</label>
+  <input id="tgosAppId" type="text" placeholder="Your TGOS AppID (optional)" />
+  <label for="tgosApiKey">TGOS APIKey (optional)</label>
+  <input id="tgosApiKey" type="text" placeholder="Your TGOS APIKey (optional)" />
+
+  <label for="address">Address to measure distance to</label>
+  <input id="address" type="text" placeholder="1600 Amphitheatre Parkway, Mountain View, CA" />
+
+  <button id="compute">Compute distance</button>
+  <div id="status" class="muted"></div>
+  <div id="output" class="result" style="display:none"></div>
+
+  <script>
+    const el = id => document.getElementById(id);
+    const toFixed = (n, d=2) => Number.parseFloat(n).toFixed(d);
+
+    async function computeDistance() {
+      el('status').textContent = '';
+      el('output').style.display = 'none';
+
+      const address = el('address').value.trim();
+      if (!address) { el('status').textContent = 'Please enter an address to geocode.'; return; }
+
+      el('status').textContent = 'Getting your location (browser permission required)...';
+
+      const userPos = await new Promise((resolve, reject) => {
+        if (!navigator.geolocation) return reject(new Error('Geolocation not supported by this browser'));
+        navigator.geolocation.getCurrentPosition(p => resolve(p.coords), err => reject(err), {enableHighAccuracy: false, timeout: 10000});
+      }).catch(e => {
+        el('status').textContent = 'Could not get your location: ' + (e.message || e.code || e);
+        throw e;
+      });
+
+      // If the user loaded TGOS (AppID/APIKey provided), prefer TGOS locate; otherwise fallback to Nominatim.
+      const tgosAppId = el('tgosAppId') ? el('tgosAppId').value.trim() : '';
+      const tgosApiKey = el('tgosApiKey') ? el('tgosApiKey').value.trim() : '';
+
+      let targetLat, targetLng, targetDisplay, targetType;
+
+      if (tgosAppId && tgosApiKey) {
+        el('status').textContent = 'Loading TGOS library...';
+        try {
+          await loadTGOS(tgosAppId, tgosApiKey);
+        } catch (e) {
+          el('status').textContent = 'Failed to load TGOS: ' + e.message;
+          return;
+        }
+
+        // instantiate locator and call locateTWD97 (returns TWD97 coords)
+        el('status').textContent = 'Geocoding address with TGOS (TWD97)...';
+        const locator = new TGOS.TGLocateService();
+        const locateResult = await new Promise((resolve, reject) => {
+          locator.locateTWD97({ address: address }, function(e, status) {
+            if (status !== TGOS.TGLocatorStatus.OK) return reject(new Error('TGOS locate status: ' + status));
+            resolve(e[0]);
+          });
+        }).catch(err => { throw err; });
+
+        const x = Number(locateResult.geometry.location.x);
+        const y = Number(locateResult.geometry.location.y);
+
+        // convert TWD97 (EPSG:3826) to WGS84 (EPSG:4326) using proj4
+        el('status').textContent = 'Converting coordinates to WGS84...';
+        // ensure proj4 is loaded
+        await ensureProj4();
+        // define EPSG:3826 if not defined
+        if (!proj4.defs['EPSG:3826']) {
+          proj4.defs('EPSG:3826', "+proj=tmerc +lat_0=0 +lon_0=121 +k=0.9999 +x_0=250000 +y_0=0 +ellps=GRS80 +units=m +no_defs");
+        }
+        const [lon, lat] = proj4('EPSG:3826', 'EPSG:4326', [x, y]);
+        targetLat = Number(lat);
+        targetLng = Number(lon);
+        targetDisplay = locateResult.display_name || locateResult.name || address;
+        targetType = locateResult.type || '';
+      } else {
+        el('status').textContent = 'Geocoding address (OpenStreetMap Nominatim)...';
+        const geocodeUrl = 'https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(address) + '&limit=1&addressdetails=1';
+        const resp = await fetch(geocodeUrl, { headers: { 'Accept-Language': 'en' } });
+        if (!resp.ok) { el('status').textContent = 'Geocoding request failed: HTTP ' + resp.status; return; }
+        const results = await resp.json();
+        if (!Array.isArray(results) || results.length === 0) { el('status').textContent = 'Geocoding error: no results'; return; }
+        const target = results[0];
+        targetLat = Number(target.lat);
+        targetLng = Number(target.lon);
+        targetDisplay = target.display_name || address;
+        targetType = target.type || '';
+      }
+
+      const dKm = haversine(userPos.latitude, userPos.longitude, targetLat, targetLng);
+      const dMiles = dKm * 0.621371;
+
+      el('status').textContent = '';
+      el('output').style.display = 'block';
+      el('output').innerHTML = `
+        <strong>From (you):</strong> ${toFixed(userPos.latitude,6)}, ${toFixed(userPos.longitude,6)}<br/>
+        <strong>To (address):</strong> ${escapeHtml(targetDisplay)}<br/>
+        <strong>Coordinates (WGS84):</strong> ${toFixed(targetLat,6)}, ${toFixed(targetLng,6)}<br/>
+        <strong>Distance:</strong> ${toFixed(dKm,2)} km (${toFixed(dMiles,2)} miles)<br/>
+        <p class="muted">Type: ${escapeHtml(targetType || '')}</p>
+        <p><a href="https://www.openstreetmap.org/?mlat=${encodeURIComponent(targetLat)}&mlon=${encodeURIComponent(targetLng)}#map=18/${encodeURIComponent(targetLat)}/${encodeURIComponent(targetLng)}" target="_blank">Open target in OpenStreetMap</a></p>
+      `;
+    }
+
+    function toRad(deg){ return deg * Math.PI / 180; }
+    function haversine(lat1, lon1, lat2, lon2){
+      const R = 6371; // km
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2) * Math.sin(dLon/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      return R * c;
+    }
+
+    // very small sanitizer for display
+    function escapeHtml(s){ return String(s).replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+    // Ensure proj4 is loaded (used to convert TWD97 -> WGS84). Returns a promise that resolves when proj4 is available.
+    function ensureProj4() {
+      if (window.proj4) return Promise.resolve();
+      return new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.8.0/proj4.js';
+        s.onload = () => resolve();
+        s.onerror = () => reject(new Error('Failed to load proj4'));
+        document.head.appendChild(s);
+      });
+    }
+
+    // Dynamically load TGOS script with provided credentials. Resolves when TGOS global is available.
+    let _tgosLoading = null;
+    function loadTGOS(appId, apiKey) {
+      if (window.TGOS) return Promise.resolve();
+      if (_tgosLoading) return _tgosLoading;
+      _tgosLoading = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.charset = 'utf-8';
+        s.src = 'https://api.tgos.tw/TGOS_API/tgos?ver=2&AppID=' + encodeURIComponent(appId) + '&APIKey=' + encodeURIComponent(apiKey);
+        s.onload = () => {
+          // TGOS script may set window.TGOS; wait a tick
+          setTimeout(() => {
+            if (window.TGOS) return resolve();
+            // sometimes script loads but TGOS not set immediately
+            let tries = 0;
+            const i = setInterval(() => {
+              tries++;
+              if (window.TGOS) { clearInterval(i); resolve(); }
+              if (tries > 20) { clearInterval(i); reject(new Error('TGOS did not initialize')); }
+            }, 100);
+          }, 0);
+        };
+        s.onerror = () => reject(new Error('Failed to load TGOS script'));
+        document.head.appendChild(s);
+      });
+      return _tgosLoading;
+    }
+
+    el('compute').addEventListener('click', () => {
+      computeDistance().catch(e => console.error(e));
+    });
+
+    // convenience: press Enter in address field
+    el('address').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') el('compute').click(); });
+  </script>
+
+  <hr/>
+  <p class="muted">Notes: This demo uses OpenStreetMap's Nominatim service for geocoding (no API key required). Please respect Nominatim's usage policy: don't bulk or automated-query the public API, and include an identifying Referer or email if you run heavier queries. For production use, consider running your own Nominatim instance or a paid geocoding provider.</p>
+</body>
+</html>
