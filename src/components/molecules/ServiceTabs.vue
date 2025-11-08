@@ -24,17 +24,13 @@ const activeTab = defineModel({ default: 0 });
 
 const tabCount = computed(() => Math.max(1, props.tabList.length));
 const gridStyle = computed(() => ({
-  gridTemplateColumns: `repeat(${tabCount.value}, minmax(0, 1fr))`,
+  gridTemplateColumns: `repeat(${tabCount.value}, minmax(0, 1fr))`
 }));
 const sliderWidth = computed(() => `calc(100% / ${tabCount.value})`);
 </script>
 
 <template>
-  <section
-    class="tabs"
-    :class="{ 'tabs__content-type': props.contentType }"
-    :style="gridStyle"
-  >
+  <section class="tabs" :class="{ 'tabs__content-type': props.contentType }" :style="gridStyle">
     <button
       v-for="(item, index) in props.tabList"
       :key="item.id"
@@ -79,5 +75,4 @@ const sliderWidth = computed(() => `calc(100% / ${tabCount.value})`);
     @apply text-primary-500;
   }
 }
-
 </style>

@@ -192,8 +192,9 @@ onMounted(() => {
                               selectedSubItem = subItem;
                             "
                             v-if="subItem.extend_count < 1"
-                            >延長兩日</a
                           >
+                            延長兩日
+                          </a>
                           <p class="text-grey-400" v-else>已延長兩日</p>
                         </template>
                         <template v-if="item.name === '處理中'">
@@ -208,8 +209,9 @@ onMounted(() => {
                               isCancelDialogOpen = true;
                               selectedSubItem = subItem;
                             "
-                            >取消預約</a
                           >
+                            取消預約
+                          </a>
                         </template>
                       </router-link>
                     </li>
@@ -295,8 +297,9 @@ onMounted(() => {
             isExtensionDialogOpen = true;
             router.push({ name: 'library-book-detail', params: { id: item.id } });
           "
-          >續借</a
         >
+          續借
+        </a>
         <hr class="my-4" />
       </div>
       <div v-if="!borrowingRecords.length">

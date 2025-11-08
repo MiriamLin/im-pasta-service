@@ -12,64 +12,46 @@ import { GoogleMap, Marker } from 'vue3-google-map';
 import {
   searchGreenRestaurants,
   getAllGreenRestaurants,
+  getSafetyRestaurantsWithRegion,
   suggestGreenRestaurants,
   findGreenRestaurantByName,
   type GreenRestaurantRecord
 } from '@/services/greenRestaurantService';
-import {
-  fetchRestaurantsByTown,
-  getAdministrativeTown,
-  type TgosNearbyRestaurant
-} from '@/services/tgosRestaurantService';
+import { getAdministrativeTown } from '@/services/tgosRestaurantService';
 import {
   suggestBrands,
   getBrandIngredients,
   type IngredientDetail
 } from '@/services/ingredientService';
-import { city as taiwanCities } from '@/zipcode/city';
+import { geocodeAddress, type GeocodeOptions } from '@/utils/geocodeDistance';
 import type { User } from '@/stores/user';
 
 interface RandomRestaurantCard extends GreenRestaurantRecord {
   pickId: string;
 }
 
-interface TargetTown {
-  county: string;
-  town: string;
-}
-
-interface NearbyRestaurant extends TgosNearbyRestaurant {
-  county: string;
-  town: string;
+interface NearbyRestaurant {
+  name: string;
+  address?: string;
+  county?: string;
+  town?: string;
+  lat: number;
+  lng: number;
   distanceKm: number;
-  ecoMatch: GreenRestaurantRecord | null;
+  geocodeSource: 'tgos' | 'nominatim';
 }
-
-const TGOS_RESTAURANT_TARGETS: TargetTown[] = [
-  { county: '臺北市', town: '中山區' },
-  { county: '臺中市', town: '北屯區' },
-  { county: '臺中市', town: '南屯區' },
-  { county: '臺中市', town: '梧棲區' },
-  { county: '臺中市', town: '大甲區' },
-  { county: '彰化縣', town: '二林鎮' },
-  { county: '嘉義縣', town: '布袋鎮' },
-  { county: '雲林縣', town: '西螺鎮' },
-  { county: '臺南市', town: '中西區' },
-  { county: '臺南市', town: '新營區' },
-  { county: '花蓮縣', town: '吉安鄉' }
-];
-
-const townsByCounty = taiwanCities.reduce<Record<string, string[]>>((acc, current) => {
-  if (!acc[current.county]) {
-    acc[current.county] = [];
-  }
-  if (!acc[current.county].includes(current.city)) {
-    acc[current.county].push(current.city);
-  }
-  return acc;
-}, {});
 
 const ALL_GREEN_RESTAURANTS = getAllGreenRestaurants();
+const SAFETY_RESTAURANTS = getSafetyRestaurantsWithRegion().filter((item) => item.address);
+const tgosAppId = import.meta.env.VITE_TGOS_APP_ID;
+const tgosApiKey = import.meta.env.VITE_TGOS_API_KEY;
+const geocodeOptions: GeocodeOptions | undefined =
+  tgosAppId && tgosApiKey
+    ? {
+        tgosAppId,
+        tgosApiKey
+      }
+    : undefined;
 
 const store = useFormStore();
 
@@ -213,9 +195,7 @@ const onSearchClick = async () => {
     restaurantResults.value = await searchGreenRestaurants(keyword);
   } catch (error) {
     errorMessage.value =
-      error instanceof Error
-        ? error.message
-        : '查詢服務目前無法使用，請稍後再試。';
+      error instanceof Error ? error.message : '查詢服務目前無法使用，請稍後再試。';
     restaurantResults.value = [];
   } finally {
     isSearching.value = false;
@@ -242,36 +222,16 @@ const pickRandomRestaurants = (sourceList: GreenRestaurantRecord[], count = 3) =
   });
 };
 
-const pickRandomNearby = (sourceList: NearbyRestaurant[], count = 3) => {
-  const total = sourceList.length;
-  if (!total) {
-    return [];
-  }
-  const picksCount = Math.min(count, total);
-  const indexes = new Set<number>();
-  while (indexes.size < picksCount) {
-    indexes.add(Math.floor(Math.random() * total));
-  }
-  const timestamp = Date.now();
-  return Array.from(indexes).map((index, order) => {
-    const item = sourceList[index];
-    const base = item.ecoMatch ?? {
-      restaurantName: item.name,
-      address: item.address,
+const refreshRandomRestaurants = () => {
+  if (userLocation.value && nearbyRestaurants.value.length) {
+    const converted = nearbyRestaurants.value.map((restaurant) => ({
+      restaurantName: restaurant.name,
+      address: restaurant.address,
       phone: undefined,
       ecoLevel: undefined,
       ecoActions: []
-    };
-    return {
-      ...base,
-      pickId: `${base.restaurantName}-${timestamp}-${order}`
-    } satisfies RandomRestaurantCard;
-  });
-};
-
-const refreshRandomRestaurants = () => {
-  if (userLocation.value && nearbyRestaurants.value.length) {
-    randomRestaurants.value = pickRandomNearby(nearbyRestaurants.value);
+    }));
+    randomRestaurants.value = pickRandomRestaurants(converted);
     return;
   }
   randomRestaurants.value = pickRandomRestaurants(ALL_GREEN_RESTAURANTS);
@@ -297,52 +257,32 @@ const formatDistance = (distanceKm: number) => {
   return `${Math.round(distanceKm * 1000)} 公尺`;
 };
 
-const buildTargetQueue = (county: string, town: string) => {
-  const queue: TargetTown[] = [];
-  const pushUnique = (target: TargetTown) => {
-    if (!queue.some((item) => item.county === target.county && item.town === target.town)) {
-      queue.push(target);
+const normalizeTaiwanCounty = (value?: string) => (value ? value.replace(/台/g, '臺') : value);
+
+const prioritizeRestaurants = (county?: string, town?: string) => {
+  const normalizedCounty = normalizeTaiwanCounty(county);
+  const normalizedTown = normalizeTaiwanCounty(town);
+  return SAFETY_RESTAURANTS.map((record) => {
+    const recordCounty = normalizeTaiwanCounty(record.county);
+    const recordTown = normalizeTaiwanCounty(record.town);
+    let score = 3;
+    if (normalizedCounty && recordCounty === normalizedCounty) {
+      score = recordTown && normalizedTown && recordTown === normalizedTown ? 0 : 1;
+    } else if (!normalizedCounty) {
+      score = 2;
     }
-  };
-
-  pushUnique({ county, town });
-  const countyTowns = townsByCounty[county] ?? [];
-  countyTowns
-    .filter((townName) => townName !== town)
-    .forEach((townName) => pushUnique({ county, town: townName }));
-  TGOS_RESTAURANT_TARGETS.forEach((target) => pushUnique(target));
-
-  return queue;
+    return { record, score };
+  })
+    .sort((a, b) => {
+      if (a.score !== b.score) {
+        return a.score - b.score;
+      }
+      return a.record.restaurantName.localeCompare(b.record.restaurantName, 'zh-TW');
+    })
+    .map((item) => item.record);
 };
 
-const fetchRestaurantCandidates = async (targets: TargetTown[], maxResults = 30) => {
-  const aggregated: NearbyRestaurant[] = [];
-  for (let index = 0; index < targets.length; index += 4) {
-    const batch = targets.slice(index, index + 4);
-    const responses = await Promise.all(
-      batch.map(async (target) => {
-        try {
-          const list = await fetchRestaurantsByTown(target.county, target.town);
-          return list.map<NearbyRestaurant>((item) => ({
-            ...item,
-            county: target.county,
-            town: target.town,
-            distanceKm: 0,
-            ecoMatch: findGreenRestaurantByName(item.name)
-          }));
-        } catch (error) {
-          console.warn('[TGOS] 查詢失敗', target, error);
-          return [];
-        }
-      })
-    );
-    responses.forEach((list) => aggregated.push(...list));
-    if (aggregated.length >= maxResults) {
-      break;
-    }
-  }
-  return aggregated;
-};
+const resolvedCache = new Map<string, NearbyRestaurant>();
 
 const getCurrentPosition = () =>
   new Promise<GeolocationPosition>((resolve, reject) => {
@@ -359,53 +299,85 @@ const getCurrentPosition = () =>
 
 const loadNearbyRestaurants = async (lat: number, lng: number) => {
   try {
-    const area = await getAdministrativeTown(lat, lng);
-    const targets = buildTargetQueue(area.county, area.town);
-    const candidates = await fetchRestaurantCandidates(targets);
-
-    if (!candidates.length) {
-      nearbyRestaurants.value = [];
-      nearbyError.value = '目前資料來源僅有極少量餐廳，無法計算距離。';
-      nearbyInfo.value = null;
-      return;
+    let area: { county?: string; town?: string } | null = null;
+    try {
+      area = await getAdministrativeTown(lat, lng);
+    } catch (error) {
+      console.warn('[TGOS] 無法辨識行政區', error);
     }
 
-    const uniqueMap = new Map<string, NearbyRestaurant>();
-    candidates.forEach((item) => {
-      const key = `${item.name}-${item.address ?? ''}-${item.lat}-${item.lng}`;
-      const mappedItem = {
-        ...item,
-        distanceKm: computeDistanceKm(lat, lng, item.lat, item.lng)
-      };
-      const existing = uniqueMap.get(key);
-      if (!existing || (!existing.ecoMatch && mappedItem.ecoMatch)) {
-        uniqueMap.set(key, mappedItem);
-      }
-    });
+    const prioritized = prioritizeRestaurants(area?.county, area?.town);
+    const resolved: NearbyRestaurant[] = [];
+    let attempts = 0;
+    const MAX_ATTEMPTS = 160;
+    const MAX_RESULTS = 60;
 
-    const ordered = Array.from(uniqueMap.values()).sort((a, b) => a.distanceKm - b.distanceKm);
-    const withinRange = ordered.filter((item) => item.distanceKm <= MAX_NEARBY_DISTANCE_KM);
-    const finalList = withinRange.length ? withinRange : ordered;
+    for (const record of prioritized) {
+      if (!record.address) {
+        continue;
+      }
+      if (attempts >= MAX_ATTEMPTS || resolved.length >= MAX_RESULTS) {
+        break;
+      }
+      attempts += 1;
+      const cacheKey = record.address.trim();
+      try {
+        let cached = resolvedCache.get(cacheKey);
+        if (!cached) {
+          const geocode = await geocodeAddress(record.address, geocodeOptions);
+          cached = {
+            name: record.restaurantName,
+            address: record.address,
+            county: record.county,
+            town: record.town,
+            lat: geocode.lat,
+            lng: geocode.lng,
+            distanceKm: 0,
+            geocodeSource: geocode.source
+          };
+          resolvedCache.set(cacheKey, cached);
+        }
+        resolved.push({
+          ...cached,
+          distanceKm: computeDistanceKm(lat, lng, cached.lat, cached.lng)
+        });
+      } catch (geocodeError) {
+        console.warn('[geocode] 無法解析地址', record.restaurantName, geocodeError);
+      }
+    }
+
+    resolved.sort((a, b) => a.distanceKm - b.distanceKm);
+    const normalizedCounty = normalizeTaiwanCounty(area?.county);
+    const sameCounty = normalizedCounty
+      ? resolved.filter((item) => normalizeTaiwanCounty(item.county) === normalizedCounty)
+      : resolved;
+    const fallback = normalizedCounty
+      ? resolved.filter((item) => normalizeTaiwanCounty(item.county) !== normalizedCounty)
+      : [];
+    const combined = normalizedCounty ? [...sameCounty, ...fallback] : resolved;
+    const withinRange = combined.filter((item) => item.distanceKm <= MAX_NEARBY_DISTANCE_KM);
+    const finalList = withinRange.length ? withinRange : combined;
+
     nearbyRestaurants.value = finalList.slice(0, 10);
     refreshRandomRestaurants();
 
     if (!nearbyRestaurants.value.length) {
       nearbyError.value = '資料源目前查無符合條件的餐廳。';
       nearbyInfo.value = null;
+    } else if (!withinRange.length) {
+      nearbyError.value = null;
+      nearbyInfo.value = '所在地 10 公里內暫無資料，改顯示距離最近的其他地區。';
+    } else if (withinRange.length < 10) {
+      nearbyError.value = null;
+      nearbyInfo.value = '所在地僅查得部分餐廳，其餘為距離最近的其他縣市店家。';
     } else {
       nearbyError.value = null;
-      nearbyInfo.value =
-        withinRange.length === 0
-          ? '目前定位範圍內查無餐廳，改顯示最接近的其他地區結果。'
-          : nearbyRestaurants.value.length < 10
-            ? '資料來源僅提供部分符合條件的餐廳，已依距離排序顯示。'
-            : null;
+      nearbyInfo.value = null;
     }
   } catch (error) {
     nearbyRestaurants.value = [];
     nearbyInfo.value = null;
-    nearbyError.value =
-      error instanceof Error ? error.message : '取得附近餐廳資料時發生錯誤。';
+    nearbyError.value = error instanceof Error ? error.message : '取得附近餐廳資料時發生錯誤。';
   }
 };
 
@@ -422,8 +394,7 @@ const onLocateClick = async () => {
     await loadNearbyRestaurants(latitude, longitude);
   } catch (error) {
     nearbyRestaurants.value = [];
-    nearbyError.value =
-      error instanceof Error ? error.message : '無法取得定位資訊，請稍後再試。';
+    nearbyError.value = error instanceof Error ? error.message : '無法取得定位資訊，請稍後再試。';
   } finally {
     isLocatingNearby.value = false;
   }
@@ -432,7 +403,6 @@ const onLocateClick = async () => {
 onMounted(() => {
   refreshRandomRestaurants();
 });
-
 </script>
 
 <template>
@@ -454,11 +424,7 @@ onMounted(() => {
           <section v-if="searchSuggestions.length" class="px-4 mt-2">
             <ul class="suggestion-list" role="listbox">
               <li v-for="item in searchSuggestions" :key="`${item.restaurantName}-${item.address}`">
-                <button
-                  type="button"
-                  class="suggestion-item"
-                  @click="onSuggestionClick(item)"
-                >
+                <button type="button" class="suggestion-item" @click="onSuggestionClick(item)">
                   <span class="suggestion-name">{{ item.restaurantName }}</span>
                   <span v-if="item.address" class="suggestion-address">{{ item.address }}</span>
                 </button>
@@ -539,7 +505,9 @@ onMounted(() => {
                 @click="onBrandSuggestionClick(item.brandName)"
               >
                 <span class="suggestion-name">{{ item.brandName }}</span>
-                <span v-if="item.companyName" class="suggestion-address">廠商：{{ item.companyName }}</span>
+                <span v-if="item.companyName" class="suggestion-address">
+                  廠商：{{ item.companyName }}
+                </span>
               </button>
             </section>
           </section>
@@ -591,7 +559,7 @@ onMounted(() => {
             <div class="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p class="text-lg font-semibold text-primary-600">附近餐廳</p>
-                <p class="text-xs text-grey-500">資料來源：內政部主題 API（data.tgos.tw）</p>
+                <p class="text-xs text-grey-500">資料來源：safety.csv + geocoding</p>
               </div>
               <button
                 type="button"
@@ -623,8 +591,10 @@ onMounted(() => {
                   <p v-if="restaurant.address" class="text-sm text-grey-600">
                     地址：{{ restaurant.address }}
                   </p>
-                  <p v-if="restaurant.village" class="text-xs text-grey-500">
-                    村里：{{ restaurant.village }}
+                  <p class="text-xs text-grey-500">
+                    {{ restaurant.county ?? '未知縣市' }} {{ restaurant.town ?? '' }} · geocode：{{
+                      restaurant.geocodeSource === 'tgos' ? 'TGOS' : 'Nominatim'
+                    }}
                   </p>
                 </div>
                 <p class="text-sm font-semibold text-grey-800">
@@ -656,15 +626,10 @@ onMounted(() => {
                 />
               </GoogleMap>
             </div>
-            <p
-              v-else-if="userLocation && !nearbyRestaurants.length"
-              class="text-xs text-grey-500"
-            >
+            <p v-else-if="userLocation && !nearbyRestaurants.length" class="text-xs text-grey-500">
               目前篩選條件沒有可顯示的餐廳，因此地圖暫不顯示。
             </p>
-            <p v-else class="text-xs text-grey-500">
-              完成定位後即可在地圖上查看餐廳分布。
-            </p>
+            <p v-else class="text-xs text-grey-500">完成定位後即可在地圖上查看餐廳分布。</p>
           </section>
           <section class="panel-card space-y-3">
             <div class="flex flex-wrap items-center justify-between gap-3">
@@ -686,9 +651,7 @@ onMounted(() => {
                   地址：{{ item.address }}
                 </p>
                 <p v-if="item.phone" class="text-sm text-grey-600">電話：{{ item.phone }}</p>
-                <p class="text-sm text-grey-600">
-                  評核結果：{{ item.ecoLevel ?? '未評核' }}
-                </p>
+                <p class="text-sm text-grey-600">評核結果：{{ item.ecoLevel ?? '未評核' }}</p>
                 <div v-if="item.ecoActions.length" class="flex flex-wrap gap-2 mt-2">
                   <span
                     v-for="tag in item.ecoActions"
