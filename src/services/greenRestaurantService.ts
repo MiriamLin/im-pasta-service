@@ -159,7 +159,7 @@ export async function searchGreenRestaurants(keyword: string) {
   return matched.map(stripInternalFields);
 }
 
-export function suggestGreenRestaurants(keyword: string, limit = 5) {
+export function suggestGreenRestaurants(keyword: string) {
   const normalized = normalizeKeyword(keyword);
 
   if (!normalized) {
@@ -168,7 +168,6 @@ export function suggestGreenRestaurants(keyword: string, limit = 5) {
 
   return internalRestaurantList
     .filter((restaurant) => restaurant.normalizedName.includes(normalized))
-    .slice(0, limit)
     .map(stripInternalFields);
 }
 

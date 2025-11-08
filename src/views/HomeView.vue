@@ -130,15 +130,7 @@ const hasGeoSupport = typeof window !== 'undefined' && 'geolocation' in navigato
 
 const selectedEcoActionSet = computed(() => new Set(selectedEcoFilters.value));
 
-const filteredRestaurantResults = computed(() => {
-  if (!selectedEcoFilters.value.length) {
-    return restaurantResults.value;
-  }
-
-  return restaurantResults.value.filter((item) =>
-    item.ecoActions.some((action) => selectedEcoActionSet.value.has(action))
-  );
-});
+const filteredRestaurantResults = computed(() => restaurantResults.value);
 
 watch(
   searchValue,
@@ -150,7 +142,7 @@ watch(
       return;
     }
 
-    searchSuggestions.value = suggestGreenRestaurants(keyword, 5);
+    searchSuggestions.value = suggestGreenRestaurants(keyword);
     errorMessage.value = null;
   },
   { immediate: false }
@@ -192,19 +184,9 @@ const onSearchClick = async () => {
   }
 };
 
-const toggleEcoAction = (action: string) => {
-  const next = new Set(selectedEcoFilters.value);
-  if (next.has(action)) {
-    next.delete(action);
-  } else {
-    next.add(action);
-  }
-  selectedEcoFilters.value = Array.from(next);
-};
+const toggleEcoAction = () => {};
 
-const clearEcoFilters = () => {
-  selectedEcoFilters.value = [];
-};
+const clearEcoFilters = () => {};
 
 const pickRandomRestaurants = (count = 3) => {
   const total = ALL_GREEN_RESTAURANTS.length;
@@ -437,32 +419,6 @@ onMounted(() => {
             <p v-else class="text-grey-500 text-sm">
               透過關鍵字查詢，確認此餐廳是否列入臺北市環保餐廳名單。
             </p>
-            <div class="filter-panel" aria-label="環保篩選">
-              <div class="flex items-center justify-between">
-                <p class="text-sm font-semibold text-grey-800">環保篩選</p>
-                <button
-                  v-if="selectedEcoFilters.length"
-                  type="button"
-                  class="text-primary-500 text-sm"
-                  @click="clearEcoFilters"
-                >
-                  清除
-                </button>
-              </div>
-              <p class="text-xs text-grey-500">依額外環保作為縮小範圍</p>
-              <div class="filter-chip-group">
-                <button
-                  v-for="option in ECO_ACTION_OPTIONS"
-                  :key="option"
-                  type="button"
-                  class="filter-chip"
-                  :class="{ 'filter-chip--active': selectedEcoActionSet.has(option) }"
-                  @click="toggleEcoAction(option)"
-                >
-                  {{ option }}
-                </button>
-              </div>
-            </div>
             <div class="space-y-2">
               <p v-if="errorMessage" class="text-warn-200 text-sm">
                 {{ errorMessage }}
@@ -476,39 +432,6 @@ onMounted(() => {
                       : '目前查無相關餐廳'
                   }}
                 </p>
-                <p
-                  v-if="selectedEcoFilters.length && restaurantResults.length && !filteredRestaurantResults.length"
-                  class="text-sm text-grey-500"
-                >
-                  已套用的環保篩選條件沒有符合結果，請調整篩選。
-                </p>
-                <ul v-if="filteredRestaurantResults.length" class="space-y-3">
-                  <li
-                    v-for="item in filteredRestaurantResults"
-                    :key="`${item.restaurantName}-${item.address ?? 'NA'}`"
-                    class="rounded-lg border border-grey-200 bg-white p-4 shadow-sm"
-                  >
-                    <p class="text-lg font-semibold text-primary-500">{{ item.restaurantName }}</p>
-                    <p v-if="item.address" class="text-sm text-grey-600 mt-1">
-                      地址：{{ item.address }}
-                    </p>
-                    <p v-if="item.phone" class="text-sm text-grey-600">
-                      電話：{{ item.phone }}
-                    </p>
-                    <p v-if="item.ecoLevel" class="text-sm text-grey-600">
-                      環保等級：{{ item.ecoLevel }}
-                    </p>
-                    <div v-if="item.ecoActions.length" class="flex flex-wrap gap-2 mt-2">
-                      <span
-                        v-for="tag in item.ecoActions"
-                        :key="`${item.restaurantName}-${tag}`"
-                        class="tag-chip"
-                      >
-                        {{ tag }}
-                      </span>
-                    </div>
-                  </li>
-                </ul>
               </template>
               <p v-else class="text-grey-500 text-sm">
                 透過左上角搜尋或點選推薦，快速找到環保餐廳。
