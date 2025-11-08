@@ -21,6 +21,11 @@ import {
   getAdministrativeTown,
   type TgosNearbyRestaurant
 } from '@/services/tgosRestaurantService';
+import {
+  suggestBrands,
+  getBrandIngredients,
+  type IngredientDetail
+} from '@/services/ingredientService';
 import { city as taiwanCities } from '@/zipcode/city';
 import type { User } from '@/stores/user';
 
@@ -120,6 +125,10 @@ const isSearching = ref(false);
 const errorMessage = ref<string | null>(null);
 const hasSearched = ref(false);
 const randomRestaurants = ref<RandomRestaurantCard[]>([]);
+const brandKeyword = ref('');
+const brandSuggestions = ref<{ brandName: string; companyName?: string }[]>([]);
+const selectedBrand = ref<string | null>(null);
+const brandIngredients = ref<IngredientDetail[]>([]);
 const nearbyRestaurants = ref<NearbyRestaurant[]>([]);
 const isLocatingNearby = ref(false);
 const hasRequestedNearby = ref(false);
@@ -151,6 +160,35 @@ watch(
 const onSuggestionClick = (item: GreenRestaurantRecord) => {
   searchValue.value = item.restaurantName;
   onSearchClick();
+};
+
+watch(
+  brandKeyword,
+  (value) => {
+    const keyword = value.trim();
+    if (!keyword) {
+      brandSuggestions.value = [];
+      return;
+    }
+    brandSuggestions.value = suggestBrands(keyword);
+  },
+  { immediate: false }
+);
+
+const onBrandSuggestionClick = (brand: string) => {
+  brandKeyword.value = brand;
+  loadBrandIngredients();
+};
+
+const loadBrandIngredients = () => {
+  const brand = brandKeyword.value.trim();
+  if (!brand) {
+    selectedBrand.value = null;
+    brandIngredients.value = [];
+    return;
+  }
+  selectedBrand.value = brand;
+  brandIngredients.value = getBrandIngredients(brand);
 };
 
 const onSearchClick = async () => {
@@ -475,12 +513,75 @@ onMounted(() => {
         </div>
       </template>
       <template #tab1>
-        <div class="p-4">
-          <section class="panel-card space-y-2">
-            <p class="text-lg font-semibold text-primary-600">食品搜尋</p>
-            <p class="text-sm text-grey-600">
-              此分頁尚待規劃，將提供食品資訊與安全查詢功能。
+        <div class="p-4 space-y-4">
+          <section class="panel-card space-y-3" aria-live="polite">
+            <div>
+              <p class="text-lg font-semibold text-primary-600">食品搜尋</p>
+              <p class="text-xs text-grey-500">輸入品牌名稱查看產品與原料資訊。</p>
+            </div>
+            <section class="flex items-center gap-3">
+              <BaseInput
+                v-model="brandKeyword"
+                placeholder="例如：麥當勞、全家..."
+                class="flex-grow"
+                @keyup.enter="loadBrandIngredients"
+              />
+              <button class="search-button" @click="loadBrandIngredients">
+                <img src="@/assets/images/search-icon.svg" alt="搜尋" />
+              </button>
+            </section>
+            <section v-if="brandSuggestions.length" class="suggestion-list" role="listbox">
+              <button
+                v-for="item in brandSuggestions"
+                :key="item.brandName"
+                type="button"
+                class="suggestion-item"
+                @click="onBrandSuggestionClick(item.brandName)"
+              >
+                <span class="suggestion-name">{{ item.brandName }}</span>
+                <span v-if="item.companyName" class="suggestion-address">廠商：{{ item.companyName }}</span>
+              </button>
+            </section>
+          </section>
+          <section class="panel-card">
+            <p v-if="!selectedBrand" class="text-sm text-grey-500">
+              尚未查詢任何品牌，請輸入關鍵字。
             </p>
+            <div v-else>
+              <p class="text-primary-600 font-semibold mb-2">{{ selectedBrand }}</p>
+              <p v-if="!brandIngredients.length" class="text-sm text-grey-500">
+                目前查無相關產品資料，請嘗試其他品牌。
+              </p>
+              <ul v-else class="space-y-3">
+                <li
+                  v-for="item in brandIngredients"
+                  :key="`${item.brandName}-${item.productName}-${item.ingredientName}`"
+                  class="rounded-xl border border-grey-200 bg-white p-3"
+                >
+                  <p class="font-semibold text-primary-600">
+                    產品：{{ item.productName ?? '未提供' }}
+                  </p>
+                  <p class="text-sm text-grey-600 mt-1">
+                    原料：{{ item.ingredientName ?? '未提供' }}
+                  </p>
+                  <p v-if="item.ingredientBrand" class="text-xs text-grey-500">
+                    原料品牌：{{ item.ingredientBrand }}
+                  </p>
+                  <p v-if="item.servingSize || item.calories" class="text-xs text-grey-500">
+                    份量：{{ item.servingSize ?? '—' }}，熱量：{{ item.calories ?? '—' }} 大卡
+                  </p>
+                  <a
+                    v-if="item.infoUrl"
+                    class="text-xs text-primary-500 underline"
+                    :href="item.infoUrl"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    查看詳細資訊
+                  </a>
+                </li>
+              </ul>
+            </div>
           </section>
         </div>
       </template>
