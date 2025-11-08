@@ -8,6 +8,7 @@ import { useConnectionMessage } from '@/composables/useConnectionMessage';
 import { useHandleConnectionData } from '@/composables/useHandleConnectionData';
 import ServiceTabsView from '@/components/organisms/ServiceTabsView.vue';
 import BaseInput from '@/components/atoms/BaseInput.vue';
+import { GoogleMap, Marker } from 'vue3-google-map';
 import {
   searchGreenRestaurants,
   getAllGreenRestaurants,
@@ -36,6 +37,7 @@ interface NearbyRestaurant extends TgosNearbyRestaurant {
   county: string;
   town: string;
   distanceKm: number;
+  ecoMatch: GreenRestaurantRecord | null;
 }
 
 const TGOS_RESTAURANT_TARGETS: TargetTown[] = [
@@ -123,7 +125,12 @@ const isLocatingNearby = ref(false);
 const hasRequestedNearby = ref(false);
 const nearbyError = ref<string | null>(null);
 const nearbyInfo = ref<string | null>(null);
+const userLocation = ref<{ lat: number; lng: number } | null>(null);
 const hasGeoSupport = typeof window !== 'undefined' && 'geolocation' in navigator;
+const googleMapApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '';
+
+const mapZoom = computed(() => (nearbyRestaurants.value.length > 5 ? 12 : 14));
+const MAX_NEARBY_DISTANCE_KM = 10;
 
 watch(
   searchValue,
@@ -177,8 +184,8 @@ const onSearchClick = async () => {
   }
 };
 
-const pickRandomRestaurants = (count = 3) => {
-  const total = ALL_GREEN_RESTAURANTS.length;
+const pickRandomRestaurants = (sourceList: GreenRestaurantRecord[], count = 3) => {
+  const total = sourceList.length;
   if (!total) {
     return [];
   }
@@ -189,7 +196,7 @@ const pickRandomRestaurants = (count = 3) => {
   }
   const timestamp = Date.now();
   return Array.from(indexes).map((index, order) => {
-    const item = ALL_GREEN_RESTAURANTS[index];
+    const item = sourceList[index];
     return {
       ...item,
       pickId: `${item.restaurantName}-${timestamp}-${order}`
@@ -197,8 +204,39 @@ const pickRandomRestaurants = (count = 3) => {
   });
 };
 
+const pickRandomNearby = (sourceList: NearbyRestaurant[], count = 3) => {
+  const total = sourceList.length;
+  if (!total) {
+    return [];
+  }
+  const picksCount = Math.min(count, total);
+  const indexes = new Set<number>();
+  while (indexes.size < picksCount) {
+    indexes.add(Math.floor(Math.random() * total));
+  }
+  const timestamp = Date.now();
+  return Array.from(indexes).map((index, order) => {
+    const item = sourceList[index];
+    const base = item.ecoMatch ?? {
+      restaurantName: item.name,
+      address: item.address,
+      phone: undefined,
+      ecoLevel: undefined,
+      ecoActions: []
+    };
+    return {
+      ...base,
+      pickId: `${base.restaurantName}-${timestamp}-${order}`
+    } satisfies RandomRestaurantCard;
+  });
+};
+
 const refreshRandomRestaurants = () => {
-  randomRestaurants.value = pickRandomRestaurants();
+  if (userLocation.value && nearbyRestaurants.value.length) {
+    randomRestaurants.value = pickRandomNearby(nearbyRestaurants.value);
+    return;
+  }
+  randomRestaurants.value = pickRandomRestaurants(ALL_GREEN_RESTAURANTS);
 };
 
 const toRad = (value: number) => (value * Math.PI) / 180;
@@ -251,7 +289,8 @@ const fetchRestaurantCandidates = async (targets: TargetTown[], maxResults = 30)
             ...item,
             county: target.county,
             town: target.town,
-            distanceKm: 0
+            distanceKm: 0,
+            ecoMatch: findGreenRestaurantByName(item.name)
           }));
         } catch (error) {
           console.warn('[TGOS] 查詢失敗', target, error);
@@ -296,16 +335,21 @@ const loadNearbyRestaurants = async (lat: number, lng: number) => {
     const uniqueMap = new Map<string, NearbyRestaurant>();
     candidates.forEach((item) => {
       const key = `${item.name}-${item.address ?? ''}-${item.lat}-${item.lng}`;
-      if (!uniqueMap.has(key)) {
-        uniqueMap.set(key, {
-          ...item,
-          distanceKm: computeDistanceKm(lat, lng, item.lat, item.lng)
-        });
+      const mappedItem = {
+        ...item,
+        distanceKm: computeDistanceKm(lat, lng, item.lat, item.lng)
+      };
+      const existing = uniqueMap.get(key);
+      if (!existing || (!existing.ecoMatch && mappedItem.ecoMatch)) {
+        uniqueMap.set(key, mappedItem);
       }
     });
 
     const ordered = Array.from(uniqueMap.values()).sort((a, b) => a.distanceKm - b.distanceKm);
-    nearbyRestaurants.value = ordered.slice(0, 10);
+    const withinRange = ordered.filter((item) => item.distanceKm <= MAX_NEARBY_DISTANCE_KM);
+    const finalList = withinRange.length ? withinRange : ordered;
+    nearbyRestaurants.value = finalList.slice(0, 10);
+    refreshRandomRestaurants();
 
     if (!nearbyRestaurants.value.length) {
       nearbyError.value = '資料源目前查無符合條件的餐廳。';
@@ -313,9 +357,11 @@ const loadNearbyRestaurants = async (lat: number, lng: number) => {
     } else {
       nearbyError.value = null;
       nearbyInfo.value =
-        nearbyRestaurants.value.length < 10
-          ? '資料來源僅提供部分符合條件的餐廳，已依距離排序顯示。'
-          : null;
+        withinRange.length === 0
+          ? '目前定位範圍內查無餐廳，改顯示最接近的其他地區結果。'
+          : nearbyRestaurants.value.length < 10
+            ? '資料來源僅提供部分符合條件的餐廳，已依距離排序顯示。'
+            : null;
     }
   } catch (error) {
     nearbyRestaurants.value = [];
@@ -334,6 +380,7 @@ const onLocateClick = async () => {
     isLocatingNearby.value = true;
     const position = await getCurrentPosition();
     const { latitude, longitude } = position.coords;
+    userLocation.value = { lat: latitude, lng: longitude };
     await loadNearbyRestaurants(latitude, longitude);
   } catch (error) {
     nearbyRestaurants.value = [];
@@ -413,9 +460,16 @@ onMounted(() => {
                 {{ errorMessage }}
               </p>
               <p v-else-if="isSearching" class="text-grey-500 text-sm">查詢中，請稍候…</p>
-              <p class="text-grey-500 text-sm" v-if="!hasSearched">
-                透過左上角搜尋或點選推薦，快速查詢食品安全評核。
-              </p>
+              <template v-else-if="hasSearched">
+                <p class="text-primary-500 font-bold">
+                  {{
+                    restaurantResults.length
+                      ? `找到 ${restaurantResults.length} 家餐廳`
+                      : '目前查無相關餐廳'
+                  }}
+                </p>
+              </template>
+              <p v-else class="text-grey-500 text-sm">尚未查詢</p>
             </div>
           </section>
         </div>
@@ -467,6 +521,39 @@ onMounted(() => {
                 </p>
               </li>
             </ul>
+            <div
+              v-if="userLocation && nearbyRestaurants.length"
+              class="map-panel"
+              aria-label="附近餐廳地圖"
+            >
+              <GoogleMap
+                :api-key="googleMapApiKey || undefined"
+                style="width: 100%; height: 100%"
+                :center="userLocation"
+                :zoom="mapZoom"
+                gesture-handling="greedy"
+                :disable-default-ui="true"
+              >
+                <Marker :options="{ position: userLocation, label: '我' }" />
+                <Marker
+                  v-for="(restaurant, index) in nearbyRestaurants"
+                  :key="`map-${restaurant.name}-${restaurant.lat}-${restaurant.lng}`"
+                  :options="{
+                    position: { lat: restaurant.lat, lng: restaurant.lng },
+                    label: `${index + 1}`
+                  }"
+                />
+              </GoogleMap>
+            </div>
+            <p
+              v-else-if="userLocation && !nearbyRestaurants.length"
+              class="text-xs text-grey-500"
+            >
+              目前篩選條件沒有可顯示的餐廳，因此地圖暫不顯示。
+            </p>
+            <p v-else class="text-xs text-grey-500">
+              完成定位後即可在地圖上查看餐廳分布。
+            </p>
           </section>
           <section class="panel-card space-y-3">
             <div class="flex flex-wrap items-center justify-between gap-3">
@@ -478,7 +565,10 @@ onMounted(() => {
                 換一批
               </button>
             </div>
-            <TransitionGroup name="fade-list" tag="ul" class="space-y-3">
+            <p v-if="!randomRestaurants.length" class="text-sm text-grey-500">
+              目前篩選條件沒有推薦結果，請調整篩選或點擊「換一批」再試試。
+            </p>
+            <TransitionGroup v-else name="fade-list" tag="ul" class="space-y-3">
               <li v-for="item in randomRestaurants" :key="item.pickId" class="random-card">
                 <p class="font-semibold text-primary-600">{{ item.restaurantName }}</p>
                 <p v-if="item.address" class="text-sm text-grey-600 mt-1">
@@ -537,6 +627,10 @@ onMounted(() => {
 
 .tag-chip--ghost {
   @apply bg-white border border-primary-200;
+}
+
+.map-panel {
+  @apply h-64 w-full overflow-hidden rounded-2xl border border-grey-200 shadow-inner;
 }
 
 .suggestion-list {
