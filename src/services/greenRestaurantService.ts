@@ -4,8 +4,8 @@ export interface GreenRestaurantRecord {
   restaurantName: string;
   address?: string;
   phone?: string;
-  ecoLevel?: string; // reuse field name to store評核結果，便於既有畫面顯示
-  ecoActions: string[]; // safety資料沒有此欄，維持空陣列確保其他版位正常運作
+  ecoLevel?: string;
+  ecoActions: string[];
 }
 
 type CsvRow = Record<string, string>;
@@ -14,7 +14,7 @@ const CSV_HEADERS = {
   name: ['業者名稱店名', '餐廳名稱', 'name'],
   address: ['地址', '餐廳地址', 'address'],
   phone: ['餐廳電話', '電話', 'tel', 'phone'],
-  evaluation: ['評核結果', 'evaluation', '結果'],
+  evaluation: ['評核結果', 'evaluation', '結果']
 };
 
 interface InternalRestaurant extends GreenRestaurantRecord {
@@ -112,7 +112,7 @@ const internalRestaurantList: InternalRestaurant[] = parseCsv(safetyCsv)
       ecoLevel: evaluation,
       ecoActions: [],
       normalizedName: normalizeKeyword(restaurantName),
-      normalizedAddress: address ? normalizeKeyword(address) : '',
+      normalizedAddress: address ? normalizeKeyword(address) : ''
     };
   })
   .filter((item): item is InternalRestaurant => Boolean(item));
@@ -121,6 +121,10 @@ const safetyRestaurantList = internalRestaurantList.map(stripInternalFields);
 
 export function getAllGreenRestaurants() {
   return safetyRestaurantList;
+}
+
+export function getEcoActionOptions() {
+  return [];
 }
 
 export async function searchGreenRestaurants(keyword: string) {
@@ -139,7 +143,7 @@ export async function searchGreenRestaurants(keyword: string) {
   return matched.map(stripInternalFields);
 }
 
-export function suggestGreenRestaurants(keyword: string) {
+export function suggestGreenRestaurants(keyword: string, limit = 5) {
   const normalized = normalizeKeyword(keyword);
 
   if (!normalized) {
@@ -148,6 +152,7 @@ export function suggestGreenRestaurants(keyword: string) {
 
   return internalRestaurantList
     .filter((restaurant) => restaurant.normalizedName.includes(normalized))
+    .slice(0, limit)
     .map(stripInternalFields);
 }
 
