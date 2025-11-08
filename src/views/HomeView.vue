@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useFormStore } from '@/stores/form';
 import { useUserStore } from '@/stores/user';
@@ -12,6 +12,8 @@ import {
   searchGreenRestaurants,
   getEcoActionOptions,
   getAllGreenRestaurants,
+  suggestGreenRestaurants,
+  findGreenRestaurantByName,
   type GreenRestaurantRecord
 } from '@/services/greenRestaurantService';
 import {
@@ -111,6 +113,9 @@ if (route.query.isSearch) {
 
 const searchValue = ref('');
 const restaurantResults = ref<GreenRestaurantRecord[]>([]);
+const searchSuggestions = ref<GreenRestaurantRecord[]>([]);
+const selectedRestaurant = ref<GreenRestaurantRecord | null>(null);
+const notFoundQuery = ref<string | null>(null);
 const isSearching = ref(false);
 const errorMessage = ref<string | null>(null);
 const hasSearched = ref(false);
@@ -135,17 +140,43 @@ const filteredRestaurantResults = computed(() => {
   );
 });
 
+watch(
+  searchValue,
+  (value) => {
+    const keyword = value.trim();
+    if (!keyword) {
+      searchSuggestions.value = [];
+      errorMessage.value = null;
+      return;
+    }
+
+    searchSuggestions.value = suggestGreenRestaurants(keyword, 5);
+    errorMessage.value = null;
+  },
+  { immediate: false }
+);
+
+const onSuggestionClick = (item: GreenRestaurantRecord) => {
+  searchValue.value = item.restaurantName;
+  onSearchClick();
+};
+
 const onSearchClick = async () => {
   const keyword = searchValue.value.trim();
-  hasSearched.value = true;
 
   if (!keyword) {
+    hasSearched.value = false;
     restaurantResults.value = [];
+    selectedRestaurant.value = null;
+    notFoundQuery.value = null;
     errorMessage.value = '請輸入餐廳名稱後再查詢。';
     return;
   }
 
+  hasSearched.value = true;
   errorMessage.value = null;
+  selectedRestaurant.value = findGreenRestaurantByName(keyword);
+  notFoundQuery.value = selectedRestaurant.value ? null : keyword;
   isSearching.value = true;
 
   try {
@@ -364,7 +395,48 @@ onMounted(() => {
               <img src="@/assets/images/search-icon.svg" alt="搜尋" />
             </button>
           </section>
+          <section v-if="searchSuggestions.length" class="px-4 mt-2">
+            <ul class="suggestion-list" role="listbox">
+              <li v-for="item in searchSuggestions" :key="`${item.restaurantName}-${item.address}`">
+                <button
+                  type="button"
+                  class="suggestion-item"
+                  @click="onSuggestionClick(item)"
+                >
+                  <span class="suggestion-name">{{ item.restaurantName }}</span>
+                  <span v-if="item.address" class="suggestion-address">{{ item.address }}</span>
+                </button>
+              </li>
+            </ul>
+          </section>
           <section class="px-4 mt-4 space-y-4" aria-live="polite">
+            <div class="eco-summary" v-if="hasSearched">
+              <p class="eco-summary__title">環保餐廳對照</p>
+              <table class="eco-table">
+                <thead>
+                  <tr>
+                    <th scope="col">餐廳名稱</th>
+                    <th scope="col">是否為環保餐廳</th>
+                    <th scope="col">餐廳地址</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-if="selectedRestaurant">
+                    <td>{{ selectedRestaurant.restaurantName }}</td>
+                    <td class="text-success">是</td>
+                    <td>{{ selectedRestaurant.address ?? '—' }}</td>
+                  </tr>
+                  <tr v-else>
+                    <td>{{ notFoundQuery ?? searchValue }}</td>
+                    <td class="text-warn-200">否</td>
+                    <td>—</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p v-else class="text-grey-500 text-sm">
+              透過關鍵字查詢，確認此餐廳是否列入臺北市環保餐廳名單。
+            </p>
             <div class="filter-panel" aria-label="環保篩選">
               <div class="flex items-center justify-between">
                 <p class="text-sm font-semibold text-grey-800">環保篩選</p>
@@ -439,7 +511,7 @@ onMounted(() => {
                 </ul>
               </template>
               <p v-else class="text-grey-500 text-sm">
-                透過關鍵字查詢，確認此餐廳是否列入臺北市環保餐廳名單。
+                透過左上角搜尋或點選推薦，快速找到環保餐廳。
               </p>
             </div>
           </section>
@@ -577,6 +649,56 @@ onMounted(() => {
 
 .tag-chip--ghost {
   @apply bg-white border border-primary-200;
+}
+
+.suggestion-list {
+  @apply space-y-2;
+}
+
+.suggestion-item {
+  @apply w-full rounded-lg border border-grey-200 bg-white p-3 text-left shadow-sm transition-colors;
+}
+
+.suggestion-item:hover,
+.suggestion-item:focus-visible {
+  @apply border-primary-200 bg-primary-50/60;
+}
+
+.suggestion-name {
+  @apply block font-semibold text-primary-600;
+}
+
+.suggestion-address {
+  @apply block text-xs text-grey-500 mt-0.5;
+}
+
+.eco-summary {
+  @apply space-y-2;
+}
+
+.eco-summary__title {
+  @apply text-sm font-semibold text-grey-700;
+}
+
+.eco-table {
+  @apply w-full overflow-hidden rounded-lg border border-grey-200;
+}
+
+.eco-table th {
+  @apply bg-grey-50 text-xs font-semibold text-grey-600;
+}
+
+.eco-table th,
+.eco-table td {
+  @apply border-b border-grey-100 px-3 py-2 align-middle;
+}
+
+.eco-table tr:last-child td {
+  @apply border-b-0;
+}
+
+.text-success {
+  @apply text-green-500 font-semibold;
 }
 
 .fade-list-enter-active,

@@ -11,6 +11,9 @@
     button{margin-top:12px;padding:8px 12px}
     .result{margin-top:18px;padding:12px;border:1px solid #ddd;border-radius:6px;background:#fafafa}
     .muted{color:#666;font-size:0.9rem}
+    table{width:100%;border-collapse:collapse;margin-top:10px}
+    th,td{border:1px solid #ccc;padding:6px;text-align:left}
+    th{background:#f0f0f0}
   </style>
 </head>
 <body>
@@ -28,10 +31,146 @@
   <button id="compute">Compute distance</button>
   <div id="status" class="muted"></div>
   <div id="output" class="result" style="display:none"></div>
+  <div id="eco-result" class="result" style="display:none">
+    <strong>環保餐廳對照</strong>
+    <div id="eco-status" class="muted" style="margin-top:6px"></div>
+    <table id="eco-table" style="display:none">
+      <thead>
+        <tr>
+          <th>餐廳名稱</th>
+          <th>是否為環保餐廳</th>
+          <th>餐廳地址</th>
+        </tr>
+      </thead>
+      <tbody id="eco-table-body"></tbody>
+    </table>
+  </div>
 
   <script>
     const el = id => document.getElementById(id);
     const toFixed = (n, d=2) => Number.parseFloat(n).toFixed(d);
+
+    let ecoData = null;
+    let ecoLoadingPromise = null;
+
+    async function ensureEcoData() {
+      if (ecoData) return ecoData;
+      if (ecoLoadingPromise) return ecoLoadingPromise;
+
+      ecoLoadingPromise = fetch('data/eco-friendly.csv')
+        .then(resp => {
+          if (!resp.ok) throw new Error('無法載入環保餐廳資料');
+          return resp.text();
+        })
+        .then(parseEcoCsv)
+        .then(data => {
+          ecoData = data;
+          return data;
+        })
+        .catch(err => {
+          ecoLoadingPromise = null;
+          throw err;
+        });
+
+      return ecoLoadingPromise;
+    }
+
+    function parseEcoCsv(text) {
+      const sanitized = text.replace(/^\uFEFF/, '');
+      const lines = sanitized.split(/\r?\n/).filter(line => line.trim().length);
+      if (!lines.length) return [];
+      const headers = splitCsvLine(lines.shift());
+      return lines.map(line => {
+        const values = splitCsvLine(line).map(value =>
+          value.replace(/^"|"$/g, '').replace(/""/g, '"')
+        );
+        const row = {};
+        headers.forEach((header, idx) => {
+          row[header.trim()] = (values[idx] || '').trim();
+        });
+        return {
+          name: row['餐廳名稱'] || row['restaurant_name'] || row['name'] || '',
+          address: row['餐廳地址'] || row['地址'] || row['address'] || '',
+        };
+      }).filter(item => item.name);
+    }
+
+    function splitCsvLine(line) {
+      const values = [];
+      let current = '';
+      let inQuotes = false;
+
+      for (let i = 0; i < line.length; i += 1) {
+        const char = line[i];
+
+        if (char === '"') {
+          if (inQuotes && line[i + 1] === '"') {
+            current += '"';
+            i += 1;
+          } else {
+            inQuotes = !inQuotes;
+          }
+          continue;
+        }
+
+        if (char === ',' && !inQuotes) {
+          values.push(current);
+          current = '';
+          continue;
+        }
+
+        current += char;
+      }
+
+      values.push(current);
+      return values;
+    }
+
+    function renderEcoResult(query) {
+      const container = el('eco-result');
+      const table = el('eco-table');
+      const tbody = el('eco-table-body');
+      const status = el('eco-status');
+
+      if (!ecoData || !query.trim()) {
+        container.style.display = 'none';
+        table.style.display = 'none';
+        status.textContent = '';
+        return;
+      }
+
+      const normalized = query.trim().toLowerCase();
+      const matches = ecoData.filter(item =>
+        item.name.toLowerCase().includes(normalized)
+      );
+
+      container.style.display = 'block';
+      table.style.display = 'table';
+      tbody.innerHTML = '';
+
+      if (matches.length === 0) {
+        status.textContent = '此餐廳尚未收錄於環保餐廳名單。';
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${escapeHtml(query)}</td>
+          <td>否</td>
+          <td>-</td>
+        `;
+        tbody.appendChild(row);
+        return;
+      }
+
+      status.textContent = `找到 ${matches.length} 筆環保餐廳紀錄。`;
+      matches.forEach(match => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${escapeHtml(match.name)}</td>
+          <td>是</td>
+          <td>${escapeHtml(match.address || '')}</td>
+        `;
+        tbody.appendChild(row);
+      });
+    }
 
     async function computeDistance() {
       el('status').textContent = '';
@@ -39,6 +178,17 @@
 
       const address = el('address').value.trim();
       if (!address) { el('status').textContent = 'Please enter an address to geocode.'; return; }
+
+      try {
+        await ensureEcoData();
+        renderEcoResult(address);
+      } catch (ecoErr) {
+        console.error(ecoErr);
+        const statusEl = el('eco-status');
+        el('eco-result').style.display = 'block';
+        statusEl.textContent = ecoErr.message || '無法讀取環保餐廳資料';
+        el('eco-table').style.display = 'none';
+      }
 
       el('status').textContent = 'Getting your location (browser permission required)...';
 
