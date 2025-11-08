@@ -73,9 +73,63 @@ export function getBrandIngredients(brandName: string): IngredientDetail[] {
     return [];
   }
 
-  return internalIngredientList
-    .filter((item) => item.normalizedBrand === normalized)
-    .map(stripInternalFields);
+  const matched = internalIngredientList.filter((item) => item.normalizedBrand === normalized);
+  if (!matched.length) {
+    return [];
+  }
+
+  const grouped = new Map<
+    string,
+    {
+      detail: IngredientDetail;
+      ingredientSet: Set<string>;
+    }
+  >();
+
+  matched.forEach((item) => {
+    const key = item.productName ?? item.ingredientName ?? item.brandName;
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        detail: {
+          companyName: item.companyName,
+          brandName: item.brandName,
+          productName: item.productName,
+          ingredientName: undefined,
+          ingredientBrand: item.ingredientBrand,
+          servingSize: item.servingSize,
+          calories: item.calories,
+          infoUrl: item.infoUrl,
+        },
+        ingredientSet: new Set<string>(),
+      });
+    }
+
+    const entry = grouped.get(key)!;
+
+    if (item.ingredientBrand && !entry.detail.ingredientBrand) {
+      entry.detail.ingredientBrand = item.ingredientBrand;
+    }
+    if (item.servingSize && !entry.detail.servingSize) {
+      entry.detail.servingSize = item.servingSize;
+    }
+    if (item.calories && !entry.detail.calories) {
+      entry.detail.calories = item.calories;
+    }
+    if (item.infoUrl && !entry.detail.infoUrl) {
+      entry.detail.infoUrl = item.infoUrl;
+    }
+
+    if (item.ingredientName) {
+      entry.ingredientSet.add(item.ingredientName);
+    }
+  });
+
+  return Array.from(grouped.values()).map(({ detail, ingredientSet }) => {
+    if (ingredientSet.size) {
+      detail.ingredientName = Array.from(ingredientSet).join('、');
+    }
+    return detail;
+  });
 }
 
 function buildBrandMap(list: InternalIngredient[]) {
