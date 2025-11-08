@@ -10,7 +10,6 @@ import ServiceTabsView from '@/components/organisms/ServiceTabsView.vue';
 import BaseInput from '@/components/atoms/BaseInput.vue';
 import {
   searchGreenRestaurants,
-  getEcoActionOptions,
   getAllGreenRestaurants,
   suggestGreenRestaurants,
   findGreenRestaurantByName,
@@ -63,7 +62,6 @@ const townsByCounty = taiwanCities.reduce<Record<string, string[]>>((acc, curren
   return acc;
 }, {});
 
-const ECO_ACTION_OPTIONS = getEcoActionOptions();
 const ALL_GREEN_RESTAURANTS = getAllGreenRestaurants();
 
 const store = useFormStore();
@@ -119,7 +117,6 @@ const notFoundQuery = ref<string | null>(null);
 const isSearching = ref(false);
 const errorMessage = ref<string | null>(null);
 const hasSearched = ref(false);
-const selectedEcoFilters = ref<string[]>([]);
 const randomRestaurants = ref<RandomRestaurantCard[]>([]);
 const nearbyRestaurants = ref<NearbyRestaurant[]>([]);
 const isLocatingNearby = ref(false);
@@ -127,10 +124,6 @@ const hasRequestedNearby = ref(false);
 const nearbyError = ref<string | null>(null);
 const nearbyInfo = ref<string | null>(null);
 const hasGeoSupport = typeof window !== 'undefined' && 'geolocation' in navigator;
-
-const selectedEcoActionSet = computed(() => new Set(selectedEcoFilters.value));
-
-const filteredRestaurantResults = computed(() => restaurantResults.value);
 
 watch(
   searchValue,
@@ -183,10 +176,6 @@ const onSearchClick = async () => {
     isSearching.value = false;
   }
 };
-
-const toggleEcoAction = () => {};
-
-const clearEcoFilters = () => {};
 
 const pickRandomRestaurants = (count = 3) => {
   const total = ALL_GREEN_RESTAURANTS.length;
@@ -393,48 +382,39 @@ onMounted(() => {
           </section>
           <section class="px-4 mt-4 space-y-4" aria-live="polite">
             <div class="eco-summary" v-if="hasSearched">
-              <p class="eco-summary__title">環保餐廳對照</p>
+              <p class="eco-summary__title">食品安全評核對照</p>
               <table class="eco-table">
                 <thead>
                   <tr>
                     <th scope="col">餐廳名稱</th>
-                    <th scope="col">是否為環保餐廳</th>
+                    <th scope="col">評核結果</th>
                     <th scope="col">餐廳地址</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-if="selectedRestaurant">
                     <td>{{ selectedRestaurant.restaurantName }}</td>
-                    <td class="text-success">是</td>
+                    <td class="text-success">{{ selectedRestaurant.ecoLevel ?? '未評核' }}</td>
                     <td>{{ selectedRestaurant.address ?? '—' }}</td>
                   </tr>
                   <tr v-else>
                     <td>{{ notFoundQuery ?? searchValue }}</td>
-                    <td class="text-warn-200">否</td>
+                    <td class="text-warn-200">未評核</td>
                     <td>—</td>
                   </tr>
                 </tbody>
               </table>
             </div>
             <p v-else class="text-grey-500 text-sm">
-              透過關鍵字查詢，確認此餐廳是否列入臺北市環保餐廳名單。
+              透過關鍵字查詢，確認餐廳最新的食品安全評核結果。
             </p>
             <div class="space-y-2">
               <p v-if="errorMessage" class="text-warn-200 text-sm">
                 {{ errorMessage }}
               </p>
               <p v-else-if="isSearching" class="text-grey-500 text-sm">查詢中，請稍候…</p>
-              <template v-else-if="hasSearched">
-                <p class="text-primary-500 font-bold">
-                  {{
-                    filteredRestaurantResults.length
-                      ? `找到 ${filteredRestaurantResults.length} 家環保餐廳`
-                      : '目前查無相關餐廳'
-                  }}
-                </p>
-              </template>
-              <p v-else class="text-grey-500 text-sm">
-                透過左上角搜尋或點選推薦，快速找到環保餐廳。
+              <p class="text-grey-500 text-sm" v-if="!hasSearched">
+                透過左上角搜尋或點選推薦，快速查詢食品安全評核。
               </p>
             </div>
           </section>
@@ -505,6 +485,9 @@ onMounted(() => {
                   地址：{{ item.address }}
                 </p>
                 <p v-if="item.phone" class="text-sm text-grey-600">電話：{{ item.phone }}</p>
+                <p class="text-sm text-grey-600">
+                  評核結果：{{ item.ecoLevel ?? '未評核' }}
+                </p>
                 <div v-if="item.ecoActions.length" class="flex flex-wrap gap-2 mt-2">
                   <span
                     v-for="tag in item.ecoActions"
@@ -524,24 +507,6 @@ onMounted(() => {
 </template>
 
 <style lang="postcss">
-.filter-panel {
-  @apply rounded-xl border border-grey-200 bg-white p-4 shadow-sm space-y-2;
-}
-
-.filter-chip-group {
-  @apply flex flex-wrap gap-2 mt-2;
-  max-height: 148px;
-  overflow-y: auto;
-}
-
-.filter-chip {
-  @apply rounded-full border border-grey-200 px-3 py-1 text-xs text-grey-600 transition-colors;
-}
-
-.filter-chip--active {
-  @apply bg-primary-500 text-white border-primary-500;
-}
-
 .panel-card {
   @apply rounded-2xl border border-grey-200 bg-white p-4 shadow-sm;
 }
@@ -604,20 +569,21 @@ onMounted(() => {
 }
 
 .eco-table {
-  @apply w-full overflow-hidden rounded-lg border border-grey-200;
+  @apply w-full border border-grey-200 rounded-lg;
+  border-collapse: collapse;
 }
 
 .eco-table th {
-  @apply bg-grey-50 text-xs font-semibold text-grey-600;
+  @apply bg-grey-50 text-xs font-semibold text-grey-600 border border-grey-200;
 }
 
 .eco-table th,
 .eco-table td {
-  @apply border-b border-grey-100 px-3 py-2 align-middle;
+  @apply border border-grey-200 px-3 py-2 align-middle;
 }
 
 .eco-table tr:last-child td {
-  @apply border-b-0;
+  @apply border-b border-grey-200;
 }
 
 .text-success {
