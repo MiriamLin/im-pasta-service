@@ -475,6 +475,16 @@ onMounted(() => {
         </div>
       </template>
       <template #tab1>
+        <div class="p-4">
+          <section class="panel-card space-y-2">
+            <p class="text-lg font-semibold text-primary-600">食品搜尋</p>
+            <p class="text-sm text-grey-600">
+              此分頁尚待規劃，將提供食品資訊與安全查詢功能。
+            </p>
+          </section>
+        </div>
+      </template>
+      <template #tab2>
         <div class="p-4 space-y-6">
           <section class="panel-card space-y-3" aria-live="polite">
             <div class="flex flex-wrap items-start justify-between gap-3">
