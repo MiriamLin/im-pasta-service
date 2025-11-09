@@ -56,7 +56,7 @@ const router = createRouter({
       path: '/',
       name: 'home',
       meta: {
-        title: '申辦服務'
+        title: '安好食'
       },
       component: HomeView
     },
@@ -64,7 +64,7 @@ const router = createRouter({
       path: '/form/:id',
       name: 'form',
       meta: {
-        title: '申辦服務'
+        title: '安好食'
       },
       component: FormView
     },
